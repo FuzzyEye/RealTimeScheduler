@@ -32,6 +32,10 @@ class SimulationEngine:
         self.task_completion_times: dict = {}
         self.task_response_times: dict = {}
         self.task_start_times: dict = {}
+        self.task_wait_times: dict = {}
+        self.task_arrival_times: dict = {}
+        self.preemption_count: int = 0
+        self.context_switch_count: int = 0
         self.arrived_keys: set = set()
         self._all_arrivals: list[Task] = list(tasks)
 
@@ -65,6 +69,15 @@ class SimulationEngine:
             if task.absolute_arrival <= until and key not in self.arrived_keys:
                 self.arrived_keys.add(key)
                 copy = task.copy()
+                if key not in self.task_arrival_times:
+                    self.task_arrival_times[key] = []
+                self.task_arrival_times[key].append(copy.absolute_arrival)
+                self.result.events.append(ScheduleEvent(
+                    time=copy.absolute_arrival,
+                    event_type=EventType.ARRIVAL,
+                    task_name=copy.name,
+                    details=f"Arrived at {copy.absolute_arrival:.4f}",
+                ))
                 if self._use_rr:
                     self.rr_deque.append(copy)
                 else:
@@ -87,6 +100,14 @@ class SimulationEngine:
             if task is None:
                 break
 
+            key = self._task_key(task)
+            if key in self.task_arrival_times and self.task_arrival_times[key]:
+                arrival = self.task_arrival_times[key][-1]
+                wait = self.current_time - arrival
+                if key not in self.task_wait_times:
+                    self.task_wait_times[key] = []
+                self.task_wait_times[key].append(wait)
+
             rt = RunningTask(task=task, start_time=self.current_time)
             if self._use_rr:
                 rt.quantum = self.quantum
@@ -94,8 +115,8 @@ class SimulationEngine:
 
             self.running_list.append(rt)
             available_slots -= 1
+            self.context_switch_count += 1
 
-            key = self._task_key(task)
             if key not in self.task_start_times:
                 self.task_start_times[key] = self.current_time
 
@@ -192,6 +213,36 @@ class SimulationEngine:
     def _log_idle(self, dt: float) -> None:
         self.result.cpu_idle_time += dt * (self.num_processors - len(self.running_list))
 
+    def _process_preemptions(self, next_time: float) -> None:
+        preempted = []
+        for rt in self.running_list:
+            if rt.task.remaining_time <= 0:
+                continue
+            still_running = True
+            for e in self.result.events[-10:]:
+                if e.task_name == rt.task.name and e.event_type == EventType.SCHEDULE:
+                    if e.time < next_time:
+                        still_running = False
+                        break
+            if not still_running:
+                preempted.append(rt)
+
+        for rt in preempted:
+            if rt.task.remaining_time > 1e-9:
+                self.running_list.remove(rt)
+                task = rt.task
+                self.result.events.append(ScheduleEvent(
+                    time=self.current_time,
+                    event_type=EventType.PREEMPT,
+                    task_name=task.name,
+                    details=f"Preempted at {self.current_time:.4f}",
+                ))
+                self.preemption_count += 1
+                if self._use_rr:
+                    self.rr_deque.append(task)
+                else:
+                    self.ready_queue.append(task)
+
     def run(self) -> SchedulingResult:
         self.current_time = self.start
         self._arrive_tasks(self.current_time)
@@ -236,4 +287,9 @@ class SimulationEngine:
             self._fill_processors()
 
         self.result.task_response_times = dict(self.task_response_times)
+        self.result.task_completion_times = dict(self.task_completion_times)
+        self.result.task_wait_times = dict(self.task_wait_times)
+        self.result.task_arrival_times = dict(self.task_arrival_times)
+        self.result.preemption_count = self.preemption_count
+        self.result.context_switch_count = self.context_switch_count
         return self.result
