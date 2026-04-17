@@ -8,6 +8,7 @@ class ConfigSimulation:
     end: float = 10.0
     strategy: str = "edf"
     num_processors: int = 1
+    preemptive: bool = True
     params: dict = field(default_factory=dict)
 
 

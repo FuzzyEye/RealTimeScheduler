@@ -1,0 +1,25 @@
+system:
+  simulation:
+    start: 0.0
+    end: 24.0
+    strategy: edf
+    num_processors: 1
+    preemptive: true
+    params: {}
+
+  execution:
+    strategy: edf
+    list_strategies: false
+
+  output:
+    mode: console
+    width: 70
+    output_file: null
+    verbose: false
+    debug: false
+
+  export:
+    json: null
+    csv: null
+    svg: null
+    html: null

@@ -15,33 +15,24 @@ A Python-based real-time task scheduler simulator supporting multiple scheduling
 ## Quick Start
 
 ```bash
-# Run with default config
-python main.py --config config/tasks.yaml
+# Run with modular config (default: ./config)
+python main.py
 
-# Override policy from CLI
-python main.py --config config/tasks.yaml --strategy edf --end 24
-
-# Multi-processor (2 CPUs)
-python main.py --config config/tasks.yaml --strategy edf --processors 2
-
-# Compare all policies
-python main.py --config config/tasks.yaml --strategy all
-
-# List available policies
-python main.py --config config/tasks.yaml --list-strategies
-
-# Output formats (default: console/ASCII)
-python main.py -c config/tasks.yaml -o png -s edf
-python main.py -c config/tasks.yaml -o tikz --output-file my_schedule.tex
-python main.py -c config/tasks.yaml -o all -s all
+# Optional: choose another config directory
+RTS_CONFIG_DIR=./config python main.py
 ```
 
 ## Configuration
 
-All settings live in a single YAML file:
+The simulator is fully config-driven. Settings are split by module:
+
+- `config/tasks.yaml`: task set only
+- `config/system.yaml`: system/simulation/execution/output/export settings
+- `config/policy.yaml`: policy strategy definitions
+
+### `config/tasks.yaml`
 
 ```yaml
-# Tasks (periodic + aperiodic)
 tasks:
   - name: T1
     period: 4.0
@@ -53,14 +44,36 @@ tasks:
     arrival_time: 1.0            # aperiodic
     execution_time: 1.5
     deadline: 5.0
-    value: lambda t, ct: 100-ct  # Optional: dynamic value computation
+    value: 15
+```
 
-# Simulation parameters
-simulation:
-  start: 0.0
-  end: 24.0
-  strategy: edf
-  num_processors: 2              # 1 = uniprocessor, 2+ = multiprocessor
+### `config/system.yaml`
+
+system:
+  simulation:
+    start: 0.0
+    end: 24.0
+    strategy: edf
+    num_processors: 1
+    preemptive: true
+    params: {}
+
+  execution:
+    strategy: edf                 # or "all"
+    list_strategies: false
+
+  output:
+    mode: console                 # console | png | tikz | all
+    width: 70
+    output_file: null
+    verbose: false
+    debug: false
+
+  export:
+    json: null
+    csv: null
+    svg: null                     # only when execution.strategy != all
+    html: null                    # only when execution.strategy != all
 ```
 
 ## Built-in Policies

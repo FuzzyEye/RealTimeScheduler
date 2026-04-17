@@ -152,6 +152,25 @@ class TestSimulation(unittest.TestCase):
         with self.assertRaises(ValueError):
             SimulationEngine(tasks, 0.0, 10.0, "nonexistent_strategy")
 
+    def test_single_core_preemptive_edf(self):
+        tasks = [
+            Task(name="T1", execution_time=4.0, arrival_time=0.0, deadline=10.0, instance_id=0),
+            Task(name="T2", execution_time=1.0, arrival_time=1.0, deadline=1.0, instance_id=0),
+        ]
+        sim = SimulationEngine(tasks, 0.0, 6.0, "edf", num_processors=1, preemptive=True)
+        result = sim.run()
+        self.assertEqual(result.deadline_miss_count(), 0)
+        self.assertGreaterEqual(result.preemption_count, 1)
+
+    def test_single_core_non_preemptive_edf(self):
+        tasks = [
+            Task(name="T1", execution_time=4.0, arrival_time=0.0, deadline=10.0, instance_id=0),
+            Task(name="T2", execution_time=1.0, arrival_time=1.0, deadline=1.0, instance_id=0),
+        ]
+        sim = SimulationEngine(tasks, 0.0, 6.0, "edf", num_processors=1, preemptive=False)
+        result = sim.run()
+        self.assertGreaterEqual(result.deadline_miss_count(), 1)
+
 
 class TestConfig(unittest.TestCase):
     def test_config_simulation_defaults(self):

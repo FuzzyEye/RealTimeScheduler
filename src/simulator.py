@@ -14,6 +14,7 @@ class SimulationEngine:
         strategy_name: str,
         strategy_params: Optional[dict] = None,
         num_processors: int = 1,
+        preemptive: bool = True,
     ):
         self.tasks = list(tasks)
         self.start = start
@@ -21,6 +22,7 @@ class SimulationEngine:
         self.strategy_name = strategy_name
         self.strategy_params = strategy_params or {}
         self.num_processors = num_processors
+        self.preemptive = preemptive
 
         self.result = SchedulingResult()
         self.result.total_time = end - start
@@ -32,7 +34,12 @@ class SimulationEngine:
         self.task_completion_times: dict = {}
         self.task_response_times: dict = {}
         self.task_start_times: dict = {}
+        self.task_wait_times: dict = {}
+        self.task_arrival_times: dict = {}
+        self.preemption_count: int = 0
+        self.context_switch_count: int = 0
         self.arrived_keys: set = set()
+        self.deadline_missed_keys: set = set()
         self._all_arrivals: list[Task] = list(tasks)
 
         strategy_def = registry.get(strategy_name)
@@ -65,6 +72,15 @@ class SimulationEngine:
             if task.absolute_arrival <= until and key not in self.arrived_keys:
                 self.arrived_keys.add(key)
                 copy = task.copy()
+                if key not in self.task_arrival_times:
+                    self.task_arrival_times[key] = []
+                self.task_arrival_times[key].append(copy.absolute_arrival)
+                self.result.events.append(ScheduleEvent(
+                    time=copy.absolute_arrival,
+                    event_type=EventType.ARRIVAL,
+                    task_name=copy.name,
+                    details=f"Arrived at {copy.absolute_arrival:.4f}",
+                ))
                 if self._use_rr:
                     self.rr_deque.append(copy)
                 else:
@@ -87,6 +103,14 @@ class SimulationEngine:
             if task is None:
                 break
 
+            key = self._task_key(task)
+            if key in self.task_arrival_times and self.task_arrival_times[key]:
+                arrival = self.task_arrival_times[key][-1]
+                wait = self.current_time - arrival
+                if key not in self.task_wait_times:
+                    self.task_wait_times[key] = []
+                self.task_wait_times[key].append(wait)
+
             rt = RunningTask(task=task, start_time=self.current_time)
             if self._use_rr:
                 rt.quantum = self.quantum
@@ -94,8 +118,8 @@ class SimulationEngine:
 
             self.running_list.append(rt)
             available_slots -= 1
+            self.context_switch_count += 1
 
-            key = self._task_key(task)
             if key not in self.task_start_times:
                 self.task_start_times[key] = self.current_time
 
@@ -111,18 +135,20 @@ class SimulationEngine:
 
     def _check_missed_deadlines(self) -> None:
         all_queue = list(self.rr_deque) if self._use_rr else list(self.ready_queue)
-        for task in all_queue:
+        all_tasks = all_queue + [rt.task for rt in self.running_list]
+        for task in all_tasks:
             key = self._task_key(task)
-            if key not in self.task_completion_times:
-                if task.absolute_deadline < self.current_time:
-                    self.result.missed_deadlines.append(task.name)
-                    self.result.events.append(ScheduleEvent(
-                        time=task.absolute_deadline,
-                        event_type=EventType.DEADLINE_MISS,
-                        task_name=task.name,
-                        details=f"Missed deadline at {task.absolute_deadline:.4f}",
-                    ))
-                    self.task_completion_times[key] = task.absolute_deadline
+            if key in self.task_completion_times or key in self.deadline_missed_keys:
+                continue
+            if task.absolute_deadline < self.current_time:
+                self.deadline_missed_keys.add(key)
+                self.result.missed_deadlines.append(task.name)
+                self.result.events.append(ScheduleEvent(
+                    time=task.absolute_deadline,
+                    event_type=EventType.DEADLINE_MISS,
+                    task_name=task.name,
+                    details=f"Missed deadline at {task.absolute_deadline:.4f}",
+                ))
 
     def _find_next_event_time(self) -> float:
         next_time = self.end
@@ -160,6 +186,19 @@ class SimulationEngine:
         for rt in completed:
             self.running_list.remove(rt)
             task = rt.task
+            key = self._task_key(task)
+            if (
+                task.absolute_deadline < self.current_time
+                and key not in self.deadline_missed_keys
+            ):
+                self.deadline_missed_keys.add(key)
+                self.result.missed_deadlines.append(task.name)
+                self.result.events.append(ScheduleEvent(
+                    time=task.absolute_deadline,
+                    event_type=EventType.DEADLINE_MISS,
+                    task_name=task.name,
+                    details=f"Missed deadline at {task.absolute_deadline:.4f}",
+                ))
             self.result.events.append(ScheduleEvent(
                 time=self.current_time,
                 event_type=EventType.COMPLETE,
@@ -167,7 +206,6 @@ class SimulationEngine:
                 details="Completed",
             ))
             self.result.completed_tasks.append(task.name)
-            key = self._task_key(task)
             self.task_completion_times[key] = self.current_time
             self.task_response_times[key] = self.current_time - task.absolute_arrival
 
@@ -191,6 +229,60 @@ class SimulationEngine:
 
     def _log_idle(self, dt: float) -> None:
         self.result.cpu_idle_time += dt * (self.num_processors - len(self.running_list))
+
+    def _process_preemptions(self, next_time: float) -> None:
+        preempted = []
+        for rt in self.running_list:
+            if rt.task.remaining_time <= 0:
+                continue
+            still_running = True
+            for e in self.result.events[-10:]:
+                if e.task_name == rt.task.name and e.event_type == EventType.SCHEDULE:
+                    if e.time < next_time:
+                        still_running = False
+                        break
+            if not still_running:
+                preempted.append(rt)
+
+        for rt in preempted:
+            if rt.task.remaining_time > 1e-9:
+                self.running_list.remove(rt)
+                task = rt.task
+                self.result.events.append(ScheduleEvent(
+                    time=self.current_time,
+                    event_type=EventType.PREEMPT,
+                    task_name=task.name,
+                    details=f"Preempted at {self.current_time:.4f}",
+                ))
+                self.preemption_count += 1
+                if self._use_rr:
+                    self.rr_deque.append(task)
+                else:
+                    self.ready_queue.append(task)
+
+    def _maybe_preempt_single_core(self) -> None:
+        if not self.preemptive or self._use_rr:
+            return
+        if self.num_processors != 1:
+            return
+        if len(self.running_list) != 1 or not self.ready_queue:
+            return
+
+        current_rt = self.running_list[0]
+        current_task = current_rt.task
+        best = self.selector_fn(self.ready_queue + [current_task], self.current_time)
+        if best is None or best == current_task:
+            return
+
+        self.running_list.pop(0)
+        self.ready_queue.append(current_task)
+        self.result.events.append(ScheduleEvent(
+            time=self.current_time,
+            event_type=EventType.PREEMPT,
+            task_name=current_task.name,
+            details=f"Preempted at {self.current_time:.4f}",
+        ))
+        self.preemption_count += 1
 
     def run(self) -> SchedulingResult:
         self.current_time = self.start
@@ -233,7 +325,13 @@ class SimulationEngine:
 
             self._arrive_tasks(self.current_time)
             self._check_missed_deadlines()
+            self._maybe_preempt_single_core()
             self._fill_processors()
 
         self.result.task_response_times = dict(self.task_response_times)
+        self.result.task_completion_times = dict(self.task_completion_times)
+        self.result.task_wait_times = dict(self.task_wait_times)
+        self.result.task_arrival_times = dict(self.task_arrival_times)
+        self.result.preemption_count = self.preemption_count
+        self.result.context_switch_count = self.context_switch_count
         return self.result

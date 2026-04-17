@@ -1,9 +1,8 @@
-import argparse
 import os
 import yaml
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from src.task import Task
 from src.config import Config, ConfigTask, ConfigSimulation, ConfigStrategy
@@ -11,7 +10,8 @@ from src.simulator import SimulationEngine
 from src.formatters import format_metrics, format_strategy_summary
 from src.registry import registry
 from src.plugins import load_plugin
-from src.output import to_png, to_tikz
+from src.output import to_png, to_tikz, to_svg, to_html
+from src.reports import ReportExporter
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -22,12 +22,29 @@ CYAN = "\033[96m"
 YELLOW = "\033[93m"
 
 
-def load_config(path: str) -> Config:
+def _read_yaml(path: Path) -> dict:
     with open(path, "r") as f:
-        raw = yaml.safe_load(f)
+        return yaml.safe_load(f) or {}
+
+
+def load_config(config_dir: str) -> tuple[Config, dict]:
+    base = Path(config_dir)
+    tasks_path = base / "tasks.yaml"
+    system_path = base / "system.yaml"
+    policy_path = base / "policy.yaml"
+
+    missing = [p.name for p in (tasks_path, system_path, policy_path) if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing config files in '{config_dir}': {', '.join(missing)}"
+        )
+
+    tasks_raw = _read_yaml(tasks_path)
+    system_raw = _read_yaml(system_path)
+    policy_raw = _read_yaml(policy_path)
 
     tasks = []
-    for t in raw.get("tasks", []):
+    for t in tasks_raw.get("tasks", []):
         tasks.append(ConfigTask(
             name=t["name"],
             execution_time=t["execution_time"],
@@ -38,17 +55,18 @@ def load_config(path: str) -> Config:
             value=t.get("value"),
         ))
 
-    sim = raw.get("simulation", {})
+    sim = system_raw.get("system", {}).get("simulation", {})
     simulation = ConfigSimulation(
         start=float(sim.get("start", 0.0)),
         end=float(sim.get("end", 10.0)),
         strategy=sim.get("strategy", "edf"),
         num_processors=int(sim.get("num_processors", 1)),
+        preemptive=bool(sim.get("preemptive", True)),
         params=sim.get("params", {}),
     )
 
     strategies = []
-    for s in raw.get("strategies", []):
+    for s in policy_raw.get("strategies", []):
         strategies.append(ConfigStrategy(
             name=s["name"],
             type=s["type"],
@@ -64,7 +82,7 @@ def load_config(path: str) -> Config:
             class_name=s.get("class_name"),
         ))
 
-    return Config(tasks=tasks, simulation=simulation, strategies=strategies)
+    return Config(tasks=tasks, simulation=simulation, strategies=strategies), system_raw
 
 
 def build_tasks(config_tasks: List[ConfigTask], start: float, end: float) -> List[Task]:
@@ -114,6 +132,7 @@ def run_strategy(config: Config, strategy_name: str, start: float, end: float, n
         strategy_name=strategy_name,
         strategy_params=config.simulation.params,
         num_processors=num_processors,
+        preemptive=config.simulation.preemptive,
     )
     result = sim.run()
     return result
@@ -281,13 +300,18 @@ def print_gantt_simple(result, max_width: int = 70, num_processors: int = 1):
     print(legend)
 
 
-def print_metrics(result, strategy_name: str):
+def print_metrics(result, strategy_name: str, verbose: bool = False):
     util = result.cpu_utilization()
     done = result.throughput()
     miss = result.deadline_miss_count()
-    avg_rt = 0.0
-    if result.task_response_times:
-        avg_rt = sum(result.task_response_times.values()) / len(result.task_response_times)
+    avg_rt = result.response_time_avg()
+    max_rt = result.response_time_max()
+    min_rt = result.response_time_min()
+    jitter = result.response_time_jitter()
+    avg_wait = result.waiting_time_avg()
+    max_wait = result.waiting_time_max()
+    preempt = result.preemption_count
+    ctx_sw = result.context_switch_count
 
     print(f"\n  {BOLD}Metrics:{RESET}")
     print(f"    CPU Utilization  :  {util:.1f}%")
@@ -298,54 +322,23 @@ def print_metrics(result, strategy_name: str):
         print(f"    Deadline Misses   :  {GREEN}0{RESET}")
     print(f"    Avg Response Time :  {avg_rt:.3f}")
 
+    if verbose:
+        print(f"    Max Response Time:  {max_rt:.3f}")
+        print(f"    Min Response Time:  {min_rt:.3f}")
+        print(f"    Response Jitter  :  {jitter:.3f}")
+        print(f"    Avg Waiting Time :  {avg_wait:.3f}")
+        print(f"    Max Waiting Time:  {max_wait:.3f}")
+        print(f"    Preemptions      :  {preempt}")
+        print(f"    Context Switches:  {ctx_sw}")
+
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Real-Time Scheduling Simulator",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py --config config/tasks.yaml
-  python main.py --config config/tasks.yaml --strategy rms --start 0 --end 24
-  python main.py --config config/tasks.yaml --strategy all
-  python main.py --config config/tasks.yaml --list-strategies
-  python main.py -c config/tasks.yaml -o png -s edf
-  python main.py -c config/tasks.yaml -o tikz --output-file my_schedule.tex
-  python main.py -c config/tasks.yaml -o all --output-file results.png
-        """
-    )
-    parser.add_argument("--config", "-c", default="config/tasks.yaml",
-                        help="Path to YAML config file")
-    parser.add_argument("--strategy", "-s",
-                        help="Scheduling strategy to use (overrides config)")
-    parser.add_argument("--start", type=float,
-                        help="Simulation start time (overrides config)")
-    parser.add_argument("--end", type=float,
-                        help="Simulation end time (overrides config)")
-    parser.add_argument("--list-strategies", action="store_true",
-                        help="List available strategies and exit")
-    parser.add_argument("--width", type=int, default=70,
-                        help="Gantt chart width (default: 70)")
-    parser.add_argument("--output", "-o",
-                        choices=["console", "png", "tikz", "all"],
-                        default="console",
-                        help="Output format: console (ASCII), png (image), tikz (LaTeX code), all (default: console)")
-    parser.add_argument("--output-file",
-                        help="Output file path (default: schedule.png / schedule.tex)")
-    parser.add_argument("--processors", "-p", type=int,
-                        help="Number of processors (overrides config)")
-
-    args = parser.parse_args()
-
-    config_path = Path(args.config)
-    if not config_path.exists():
-        print(f"Error: Config file not found: {args.config}", file=sys.stderr)
-        sys.exit(1)
+    config_dir = os.getenv("RTS_CONFIG_DIR", "config")
 
     try:
-        config = load_config(args.config)
+        config, system_raw = load_config(config_dir)
     except Exception as e:
-        print(f"Error loading config: {e}", file=sys.stderr)
+        print(f"Error loading modular config: {e}", file=sys.stderr)
         sys.exit(1)
 
     for s in config.strategies:
@@ -363,14 +356,23 @@ Examples:
             "description": s.description,
         })
 
-    if args.list_strategies:
+    execution_cfg = system_raw.get("system", {}).get("execution", {})
+    output_cfg = system_raw.get("system", {}).get("output", {})
+    export_cfg = system_raw.get("system", {}).get("export", {})
+
+    if bool(execution_cfg.get("list_strategies", False)):
         list_strategies(config)
         return
 
-    strategy = args.strategy or config.simulation.strategy
-    start = args.start if args.start is not None else config.simulation.start
-    end = args.end if args.end is not None else config.simulation.end
-    num_procs = args.processors if args.processors is not None else config.simulation.num_processors
+    strategy = execution_cfg.get("strategy", config.simulation.strategy)
+    start = config.simulation.start
+    end = config.simulation.end
+    num_procs = config.simulation.num_processors
+    output_mode = output_cfg.get("mode", "console")
+    width = int(output_cfg.get("width", 70))
+    output_file = output_cfg.get("output_file")
+    verbose = bool(output_cfg.get("verbose", False))
+    debug = bool(output_cfg.get("debug", False))
 
     if num_procs < 1:
         print(f"Error: num_processors must be >= 1, got {num_procs}", file=sys.stderr)
@@ -396,19 +398,18 @@ Examples:
             except Exception as e:
                 print(f"  {RED}Error running {sname}: {e}{RESET}")
 
-        output_mode = args.output
         if output_mode == "console" or output_mode == "all":
-            print(format_strategy_summary(results, args.width))
+            print(format_strategy_summary(results, width))
             print()
             for sname, result in results.items():
                 print(f"\n  {BOLD}--- {sname} ---{RESET}")
-                print_gantt_simple(result, args.width, num_procs)
-                print_metrics(result, sname)
+                print_gantt_simple(result, width, num_procs)
+                print_metrics(result, sname, verbose=verbose)
 
         if output_mode == "tikz" or output_mode == "all":
             for sname, result in results.items():
                 suffix = f"_{sname}" if len(results) > 1 else ""
-                base = args.output_file or f"schedule{suffix}.tex"
+                base = output_file or f"schedule{suffix}.tex"
                 fname = os.path.join("output", base)
                 code = to_tikz(result, sname, fname, num_processors=num_procs)
                 print(f"  {GREEN}TikZ saved:{RESET} {fname}")
@@ -418,7 +419,7 @@ Examples:
         if output_mode == "png" or output_mode == "all":
             for sname, result in results.items():
                 suffix = f"_{sname}" if len(results) > 1 else ""
-                base = args.output_file or f"schedule{suffix}.png"
+                base = output_file or f"schedule{suffix}.png"
                 fname = os.path.join("output", base)
                 try:
                     to_png(result, sname, fname, num_processors=num_procs)
@@ -435,25 +436,49 @@ Examples:
 
         result = run_strategy(config, strategy, start, end, num_procs)
 
-        output_mode = args.output
         if output_mode == "console" or output_mode == "all":
             print_header(strategy, start, end, num_procs)
             print()
-            print_gantt_simple(result, args.width, num_procs)
-            print_metrics(result, strategy)
+            print_gantt_simple(result, width, num_procs)
+            print_metrics(result, strategy, verbose=verbose)
 
         if output_mode == "tikz":
-            fname = os.path.join("output", args.output_file or "schedule.tex")
+            fname = os.path.join("output", output_file or "schedule.tex")
             code = to_tikz(result, strategy, fname, num_processors=num_procs)
             print(f"  {GREEN}TikZ saved:{RESET} {fname}")
 
         if output_mode == "png":
-            fname = os.path.join("output", args.output_file or "schedule.png")
+            fname = os.path.join("output", output_file or "schedule.png")
             try:
                 to_png(result, strategy, fname, num_processors=num_procs)
                 print(f"  {GREEN}PNG saved:{RESET} {fname}")
             except ImportError as e:
                 print(f"  {RED}{e}{RESET}")
+
+    report_results = results if strategy == "all" else {strategy: result}
+    if export_cfg.get("json"):
+        ReportExporter.save_json(report_results, export_cfg["json"])
+        print(f"  {GREEN}JSON saved:{RESET} {export_cfg['json']}")
+
+    if export_cfg.get("csv"):
+        ReportExporter.save_csv(report_results, export_cfg["csv"])
+        print(f"  {GREEN}CSV saved:{RESET} {export_cfg['csv']}")
+
+    if export_cfg.get("svg") and strategy != "all":
+        to_svg(result, strategy, export_cfg["svg"], num_processors=num_procs)
+        print(f"  {GREEN}SVG saved:{RESET} {export_cfg['svg']}")
+
+    if export_cfg.get("html") and strategy != "all":
+        to_html(result, strategy, export_cfg["html"], num_processors=num_procs)
+        print(f"  {GREEN}HTML saved:{RESET} {export_cfg['html']}")
+
+    if debug and strategy != "all":
+        print(f"\n  {DIM}=== DEBUG INFO ==={RESET}")
+        print(f"  {DIM}Events: {len(result.events)}")
+        print(f"  {DIM}Completed: {result.completed_tasks}")
+        print(f"  {DIM}Missed: {result.missed_deadlines}")
+        print(f"  {DIM}Response times: {result.task_response_times}")
+        print(f"  {DIM}Wait times: {result.task_wait_times}{RESET}")
 
     print()
 
