@@ -1,0 +1,80 @@
+tasks:
+  - name: T1
+    period: 4.0
+    execution_time: 1.0
+    deadline: 4.0
+    priority: 1
+  - name: T2
+    period: 6.0
+    execution_time: 2.0
+    deadline: 6.0
+    priority: 2
+  - name: T3
+    period: 8.0
+    execution_time: 3.0
+    deadline: 8.0
+    priority: 3
+
+simulation:
+  start: 0.0
+  end: 24.0
+  strategy: edf
+  num_processors: 1
+  params: {}
+
+strategies:
+  - name: edf
+    description: "Earliest Deadline First — selects task with earliest absolute deadline"
+    type: dynamic
+    selector: earliest_deadline
+    params: {}
+
+  - name: llf
+    description: "Least Laxity First — selects task with smallest laxity"
+    type: dynamic
+    selector: least_laxity
+    fallback: edf
+    params: {}
+
+  - name: llf_threshold
+    description: "LLF with threshold — switch to EDF when all laxities exceed threshold"
+    type: dynamic
+    selector: least_laxity
+    fallback: edf
+    params:
+      threshold: 2.0
+
+  - name: rms
+    description: "Rate Monotonic Scheduling — fixed priority by shortest period"
+    type: fixed_priority
+    priority_key: period
+    params: {}
+
+  - name: dms
+    description: "Deadline Monotonic Scheduling — fixed priority by shortest relative deadline"
+    type: fixed_priority
+    priority_key: deadline
+    params: {}
+
+  - name: fcfs
+    description: "First Come First Served — selects task that arrived earliest"
+    type: queue
+    selector: earliest_arrival
+    params: {}
+
+  - name: rr
+    description: "Round Robin — cyclic queue with time quantum"
+    type: round_robin
+    params:
+      quantum: 1.0
+
+  - name: hybrid_edf_llf
+    description: "Use LLF when any laxity < threshold, else EDF"
+    type: conditional
+    condition:
+      metric: laxity
+      operator: lt
+      value: 2.0
+    true_branch: llf
+    false_branch: edf
+    params: {}
