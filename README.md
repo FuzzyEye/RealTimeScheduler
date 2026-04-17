@@ -185,15 +185,6 @@ src/
         └── examples.py  Example implementations
 ```
 
-## Testing
-
-```bash
-python -m pytest tests/ -v
-# or
-python tests/test_schedulers.py
-python tests/test_plugin_system.py
-```
-
 ## License
 
 MIT
