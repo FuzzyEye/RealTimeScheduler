@@ -1,62 +1,88 @@
-from typing import Optional, Any, List
-from src.policy.templates.base import SchedulingPolicy
+from typing import Optional, Any
+from src.policy.templates.base import HeapPolicy, SchedulingContext
 from src.task_params import get_task_value, compute_task_value, get_task_laxity
+from heapq import heappush, heappop, heapify
 
 
-class ValueBasedPolicy(SchedulingPolicy):
+class ValueBasedPolicy(HeapPolicy):
     name = "value_based"
-    description = "Value-based scheduling - selects task with highest value (Val parameter)"
+    description = "Value-based scheduling - selects task with highest value"
 
-    def select(self, ready_queue: List[Any], current_time: float) -> Optional[Any]:
-        if not ready_queue:
+    def __init__(self):
+        super().__init__()
+        self._current_time = 0.0
+
+    def _key_func(self, task: Any) -> float:
+        val = compute_task_value(task, self._current_time)
+        return -val if val is not None else float('-inf')
+
+    def select(self) -> Optional[Any]:
+        if not self._heap:
             return None
-        return max(
-            ready_queue,
-            key=lambda t: compute_task_value(t, current_time, ready_queue=ready_queue) or float('-inf')
-        )
+        return self._heap[0][1]
+
+    def _enqueue(self, task: Any) -> None:
+        key = self._key_func(task)
+        heappush(self._heap, (key, task))
+        if task not in self._queue:
+            self._queue.append(task)
 
 
-class HighestValuePolicy(SchedulingPolicy):
+class HighestValuePolicy(HeapPolicy):
     name = "highest_value"
     description = "Highest Value - selects task with highest raw value"
 
-    def select(self, ready_queue: List[Any], current_time: float) -> Optional[Any]:
-        if not ready_queue:
+    def __init__(self):
+        super().__init__()
+
+    def _key_func(self, task: Any) -> float:
+        val = get_task_value(task, 0.0)
+        return -val if val is not None else float('-inf')
+
+    def select(self) -> Optional[Any]:
+        if not self._heap:
             return None
-        return max(
-            ready_queue,
-            key=lambda t: get_task_value(t, current_time) if get_task_value(t, current_time) is not None else float('-inf')
-        )
+        return self._heap[0][1]
+
+    def _enqueue(self, task: Any) -> None:
+        key = self._key_func(task)
+        heappush(self._heap, (key, task))
+        if task not in self._queue:
+            self._queue.append(task)
 
 
-class UtilityAwarePolicy(SchedulingPolicy):
+class UtilityAwarePolicy(HeapPolicy):
     name = "utility_aware"
-    description = "Utility-aware scheduling - combines value with urgency (laxity)"
+    description = "Utility-aware scheduling - combines value with urgency"
 
     def __init__(self, urgency_weight: float = 1.0, value_weight: float = 1.0):
+        super().__init__()
         self.urgency_weight = urgency_weight
         self.value_weight = value_weight
 
-    def select(self, ready_queue: List[Any], current_time: float) -> Optional[Any]:
-        if not ready_queue:
+    def _key_func(self, task: Any) -> float:
+        val = get_task_value(task, 0.0)
+        laxity = get_task_laxity(task, 0.0)
+        if val is None:
+            val = 1.0
+        urgency = 1.0 / max(laxity, 0.1)
+        return -(self.value_weight * val + self.urgency_weight * urgency)
+
+    def select(self) -> Optional[Any]:
+        if not self._heap:
             return None
+        return self._heap[0][1]
 
-        def compute_utility(task):
-            val = get_task_value(task, current_time)
-            laxity = get_task_laxity(task, current_time)
-
-            if val is None:
-                val = 1.0
-
-            urgency = 1.0 / max(laxity, 0.1)
-            return self.value_weight * (val if isinstance(val, (int, float)) else 1.0) + self.urgency_weight * urgency
-
-        return max(ready_queue, key=compute_utility)
+    def _enqueue(self, task: Any) -> None:
+        key = self._key_func(task)
+        heappush(self._heap, (key, task))
+        if task not in self._queue:
+            self._queue.append(task)
 
 
-class HybridPolicy(SchedulingPolicy):
+class HybridPolicy(HeapPolicy):
     name = "hybrid"
-    description = "Hybrid scheduling - weighted combination of priority, deadline, and value"
+    description = "Hybrid scheduling - weighted combination"
 
     def __init__(
         self,
@@ -64,27 +90,34 @@ class HybridPolicy(SchedulingPolicy):
         deadline_weight: float = 0.3,
         value_weight: float = 0.4
     ):
+        super().__init__()
         self.priority_weight = priority_weight
         self.deadline_weight = deadline_weight
         self.value_weight = value_weight
 
-    def select(self, ready_queue: List[Any], current_time: float) -> Optional[Any]:
-        if not ready_queue:
+    def _key_func(self, task: Any) -> float:
+        priority_score = 1.0 / max(getattr(task, 'priority', 1), 1)
+        laxity = get_task_laxity(task, 0.0)
+        deadline_score = 1.0 / max(laxity, 0.1)
+        val = get_task_value(task, 0.0)
+        value_score = val if isinstance(val, (int, float)) else 1.0
+        score = (
+            self.priority_weight * priority_score +
+            self.deadline_weight * deadline_score +
+            self.value_weight * value_score
+        )
+        return -score
+
+    def select(self) -> Optional[Any]:
+        if not self._heap:
             return None
+        return self._heap[0][1]
 
-        def hybrid_score(task):
-            priority_score = 1.0 / max(getattr(task, 'priority', 1), 1)
-            deadline_score = 1.0 / max(get_task_laxity(task, current_time), 0.1)
-            val = get_task_value(task, current_time)
-            value_score = val if isinstance(val, (int, float)) else 1.0
-
-            return (
-                self.priority_weight * priority_score +
-                self.deadline_weight * deadline_score +
-                self.value_weight * value_score
-            )
-
-        return max(ready_queue, key=hybrid_score)
+    def _enqueue(self, task: Any) -> None:
+        key = self._key_func(task)
+        heappush(self._heap, (key, task))
+        if task not in self._queue:
+            self._queue.append(task)
 
 
 def value_based_factory(params=None):
