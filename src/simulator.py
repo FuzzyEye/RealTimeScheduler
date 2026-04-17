@@ -134,7 +134,7 @@ class SimulationEngine:
 
                     key = self._task_key(task)
                     if key in self.task_arrival_times and self.task_arrival_times[key]:
-                        arrival = self.task_arrival_times[key][-1]
+                        arrival = self.task_arrival_times[key].pop(0)
                         wait = self.current_time - arrival
                         if key not in self.task_wait_times:
                             self.task_wait_times[key] = []
@@ -170,7 +170,7 @@ class SimulationEngine:
 
                 key = self._task_key(task)
                 if key in self.task_arrival_times and self.task_arrival_times[key]:
-                    arrival = self.task_arrival_times[key][-1]
+                    arrival = self.task_arrival_times[key].pop(0)
                     wait = self.current_time - arrival
                     if key not in self.task_wait_times:
                         self.task_wait_times[key] = []

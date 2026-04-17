@@ -157,10 +157,15 @@ def print_gantt_simple(result, max_width: int = 70, num_processors: int = 1):
             running[proc] = e.task_name
             seg_start[proc] = e.time
         elif e.event_type.value in ("complete", "preempt", "quantum_expire"):
-            for proc in list(running.keys()):
-                schedule_events.append((seg_start[proc], e.time, running[proc], proc))
-                del running[proc]
-                del seg_start[proc]
+            completed_proc = None
+            for proc, task_name in running.items():
+                if task_name == e.task_name:
+                    completed_proc = proc
+                    break
+            if completed_proc is not None:
+                schedule_events.append((seg_start[completed_proc], e.time, running[completed_proc], completed_proc))
+                del running[completed_proc]
+                del seg_start[completed_proc]
 
     for proc, task in running.items():
         schedule_events.append((seg_start[proc], result.total_time, task, proc))

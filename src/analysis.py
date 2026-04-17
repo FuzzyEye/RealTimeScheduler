@@ -46,7 +46,7 @@ class SchedulabilityAnalysis:
         ui = sorted([t.execution_time / t.period for t in periodic if t.period > 0])
         product = 1.0
         for u in ui:
-            product *= (1.0 + u) - 1.0
+            product *= (1.0 + u)
 
         U = sum(ui)
         U_bound = 1.0
