@@ -3,7 +3,7 @@ import os
 import yaml
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from src.task import Task
 from src.config import Config, ConfigTask, ConfigSimulation, ConfigStrategy
@@ -11,7 +11,8 @@ from src.simulator import SimulationEngine
 from src.formatters import format_metrics, format_strategy_summary
 from src.registry import registry
 from src.plugins import load_plugin
-from src.output import to_png, to_tikz
+from src.output import to_png, to_tikz, to_svg, to_html
+from src.reports import ReportExporter
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -281,13 +282,18 @@ def print_gantt_simple(result, max_width: int = 70, num_processors: int = 1):
     print(legend)
 
 
-def print_metrics(result, strategy_name: str):
+def print_metrics(result, strategy_name: str, verbose: bool = False):
     util = result.cpu_utilization()
     done = result.throughput()
     miss = result.deadline_miss_count()
-    avg_rt = 0.0
-    if result.task_response_times:
-        avg_rt = sum(result.task_response_times.values()) / len(result.task_response_times)
+    avg_rt = result.response_time_avg()
+    max_rt = result.response_time_max()
+    min_rt = result.response_time_min()
+    jitter = result.response_time_jitter()
+    avg_wait = result.waiting_time_avg()
+    max_wait = result.waiting_time_max()
+    preempt = result.preemption_count
+    ctx_sw = result.context_switch_count
 
     print(f"\n  {BOLD}Metrics:{RESET}")
     print(f"    CPU Utilization  :  {util:.1f}%")
@@ -297,6 +303,15 @@ def print_metrics(result, strategy_name: str):
     else:
         print(f"    Deadline Misses   :  {GREEN}0{RESET}")
     print(f"    Avg Response Time :  {avg_rt:.3f}")
+
+    if verbose:
+        print(f"    Max Response Time:  {max_rt:.3f}")
+        print(f"    Min Response Time:  {min_rt:.3f}")
+        print(f"    Response Jitter  :  {jitter:.3f}")
+        print(f"    Avg Waiting Time :  {avg_wait:.3f}")
+        print(f"    Max Waiting Time:  {max_wait:.3f}")
+        print(f"    Preemptions      :  {preempt}")
+        print(f"    Context Switches:  {ctx_sw}")
 
 
 def main():
@@ -334,6 +349,18 @@ Examples:
                         help="Output file path (default: schedule.png / schedule.tex)")
     parser.add_argument("--processors", "-p", type=int,
                         help="Number of processors (overrides config)")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Enable verbose/debug output")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable detailed debug output")
+    parser.add_argument("--export-json",
+                        help="Export results to JSON file")
+    parser.add_argument("--export-csv",
+                        help="Export results to CSV file")
+    parser.add_argument("--export-svg",
+                        help="Export results to SVG file")
+    parser.add_argument("--export-html",
+                        help="Export results to interactive HTML file")
 
     args = parser.parse_args()
 
@@ -403,7 +430,7 @@ Examples:
             for sname, result in results.items():
                 print(f"\n  {BOLD}--- {sname} ---{RESET}")
                 print_gantt_simple(result, args.width, num_procs)
-                print_metrics(result, sname)
+                print_metrics(result, sname, verbose=args.verbose)
 
         if output_mode == "tikz" or output_mode == "all":
             for sname, result in results.items():
@@ -440,7 +467,7 @@ Examples:
             print_header(strategy, start, end, num_procs)
             print()
             print_gantt_simple(result, args.width, num_procs)
-            print_metrics(result, strategy)
+            print_metrics(result, strategy, verbose=args.verbose)
 
         if output_mode == "tikz":
             fname = os.path.join("output", args.output_file or "schedule.tex")
@@ -454,6 +481,30 @@ Examples:
                 print(f"  {GREEN}PNG saved:{RESET} {fname}")
             except ImportError as e:
                 print(f"  {RED}{e}{RESET}")
+
+    if args.export_json:
+        ReportExporter.save_json({strategy: result}, args.export_json)
+        print(f"  {GREEN}JSON saved:{RESET} {args.export_json}")
+
+    if args.export_csv:
+        ReportExporter.save_csv({strategy: result}, args.export_csv)
+        print(f"  {GREEN}CSV saved:{RESET} {args.export_csv}")
+
+    if args.export_svg:
+        to_svg(result, strategy, args.export_svg, num_processors=num_procs)
+        print(f"  {GREEN}SVG saved:{RESET} {args.export_svg}")
+
+    if args.export_html:
+        to_html(result, strategy, args.export_html, num_processors=num_procs)
+        print(f"  {GREEN}HTML saved:{RESET} {args.export_html}")
+
+    if args.debug:
+        print(f"\n  {DIM}=== DEBUG INFO ==={RESET}")
+        print(f"  {DIM}Events: {len(result.events)}")
+        print(f"  {DIM}Completed: {result.completed_tasks}")
+        print(f"  {DIM}Missed: {result.missed_deadlines}")
+        print(f"  {DIM}Response times: {result.task_response_times}")
+        print(f"  {DIM}Wait times: {result.task_wait_times}{RESET}")
 
     print()
 
