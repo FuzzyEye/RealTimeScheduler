@@ -1,4 +1,4 @@
-from typing import List, Optional, Callable, Any
+from typing import List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -39,7 +39,8 @@ class SchedulingResult:
     def cpu_utilization(self) -> float:
         if self.total_time <= 0:
             return 0.0
-        return (self.total_time - self.cpu_idle_time) / self.total_time * 100.0
+        busy = max(0.0, self.total_time - self.cpu_idle_time)
+        return busy / self.total_time * 100.0
 
     def throughput(self) -> int:
         return len(self.completed_tasks)
@@ -84,25 +85,33 @@ class SchedulingResult:
         values = list(self.task_response_times.values())
         avg = sum(values) / len(values)
         variance = sum((x - avg) ** 2 for x in values) / len(values)
-        return variance ** 0.5
+        return variance**0.5
 
     def lateness(self) -> float:
-        lateness = 0.0
-        for task_name, times in self.task_completion_times.items():
-            if isinstance(task_name, tuple) and len(task_name) >= 2:
-                name, instance = task_name[0], task_name[1]
-                for event in self.events:
-                    if event.task_name == name and event.event_type.value == "schedule":
-                        deadline = event.time
-                        for comp_time in ([times] if isinstance(times, float) else times):
-                            lateness = max(lateness, comp_time - deadline)
-        return lateness
+        max_late = 0.0
+        for event in self.events:
+            if event.event_type != EventType.DEADLINE_MISS:
+                continue
+            deadline_time = event.time
+            instance_id = 0
+            details = getattr(event, "details", "") or ""
+            if "instance=" in details:
+                try:
+                    instance_id = int(details.split("instance=")[1].split(")")[0].split()[0])
+                except Exception:
+                    instance_id = 0
+            key = (event.task_name, instance_id)
+            completion = self.task_completion_times.get(key)
+            if isinstance(completion, (int, float)):
+                max_late = max(max_late, float(completion) - float(deadline_time))
+        return max_late
 
 
 @dataclass
 class RunningTask:
-    task: 'Task'
+    task: "Task"
     start_time: float
     quantum: Optional[float] = None
     quantum_expire_time: Optional[float] = None
     preempted: bool = False
+

@@ -58,37 +58,37 @@ class TaskAccessor:
             remaining = task.remaining_time
             abs_deadline = task.absolute_deadline
         else:
-            remaining = getattr(task, 'remaining_time', 0)
-            abs_deadline = getattr(task, 'absolute_deadline', float('inf'))
+            remaining = getattr(task, "remaining_time", 0)
+            abs_deadline = getattr(task, "absolute_deadline", float("inf"))
         if remaining <= 0:
-            return float('inf')
+            return float("inf")
         return abs_deadline - current_time - remaining
 
 
 DEFAULT_ACCESSOR = TaskAccessor(
-    get_T=lambda t: getattr(t, 'period', None),
-    get_C=lambda t: getattr(t, 'execution_time', 0.0),
-    get_D=lambda t: getattr(t, 'deadline', None),
-    get_Val=lambda t, ct: getattr(t, 'value', None),
+    get_T=lambda t: getattr(t, "period", None),
+    get_C=lambda t: getattr(t, "execution_time", 0.0),
+    get_D=lambda t: getattr(t, "deadline", None),
+    get_Val=lambda t, ct: getattr(t, "value", None),
 )
 
 
 def get_task_period(task: Any) -> Optional[float]:
     if isinstance(task, TaskTimingProtocol):
         return task.period
-    return getattr(task, 'period', None)
+    return getattr(task, "period", None)
 
 
 def get_task_computation(task: Any) -> float:
     if isinstance(task, TaskTimingProtocol):
         return task.execution_time
-    return getattr(task, 'execution_time', 0.0)
+    return getattr(task, "execution_time", 0.0)
 
 
 def get_task_deadline(task: Any) -> Optional[float]:
     if isinstance(task, TaskTimingProtocol):
         return task.deadline
-    return getattr(task, 'deadline', None)
+    return getattr(task, "deadline", None)
 
 
 def get_task_value(task: Any, current_time: float = 0.0) -> Any:
@@ -97,14 +97,14 @@ def get_task_value(task: Any, current_time: float = 0.0) -> Any:
         if callable(val):
             return val(task, current_time)
         return val
-    val = getattr(task, 'value', None)
+    val = getattr(task, "value", None)
     if callable(val):
         return val(task, current_time)
     return val
 
 
 def compute_task_value(task: Any, current_time: float = 0.0, **context) -> Any:
-    compute_fn = getattr(task, 'compute_value', None)
+    compute_fn = getattr(task, "compute_value", None)
     if compute_fn is not None and callable(compute_fn):
         return compute_fn(current_time, **context)
     return get_task_value(task, current_time)
@@ -115,26 +115,27 @@ def get_task_laxity(task: Any, current_time: float) -> float:
         remaining = task.remaining_time
         abs_deadline = task.absolute_deadline
     else:
-        remaining = getattr(task, 'remaining_time', 0)
-        abs_deadline = getattr(task, 'absolute_deadline', float('inf'))
+        remaining = getattr(task, "remaining_time", 0)
+        abs_deadline = getattr(task, "absolute_deadline", float("inf"))
     if remaining <= 0:
-        return float('inf')
+        return float("inf")
     return abs_deadline - current_time - remaining
 
 
 def get_task_remaining_time(task: Any) -> float:
     if isinstance(task, TaskRuntimeProtocol):
         return task.remaining_time
-    return getattr(task, 'remaining_time', 0.0)
+    return getattr(task, "remaining_time", 0.0)
 
 
 def get_task_absolute_deadline(task: Any) -> float:
     if isinstance(task, TaskRuntimeProtocol):
         return task.absolute_deadline
-    return getattr(task, 'absolute_deadline', float('inf'))
+    return getattr(task, "absolute_deadline", float("inf"))
 
 
 def get_task_absolute_arrival(task: Any) -> float:
     if isinstance(task, TaskRuntimeProtocol):
         return task.absolute_arrival
-    return getattr(task, 'absolute_arrival', 0.0)
+    return getattr(task, "absolute_arrival", 0.0)
+

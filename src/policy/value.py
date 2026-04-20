@@ -1,6 +1,6 @@
 from typing import Optional, Any
 from src.policy.templates.base import HeapPolicy, SchedulingContext
-from src.task_params import get_task_value, compute_task_value, get_task_laxity
+from src.core.task_params import get_task_value, compute_task_value, get_task_laxity
 from heapq import heappush, heappop, heapify
 
 
@@ -11,8 +11,9 @@ class ValueBasedPolicy(HeapPolicy):
     def __init__(self):
         super().__init__()
         self._current_time = 0.0
+        self._key_func = lambda t: self._value_key(t)
 
-    def _key_func(self, task: Any) -> float:
+    def _value_key(self, task: Any) -> float:
         val = compute_task_value(task, self._current_time)
         return -val if val is not None else float('-inf')
 
@@ -21,11 +22,9 @@ class ValueBasedPolicy(HeapPolicy):
             return None
         return self._heap[0][1]
 
-    def _enqueue(self, task: Any) -> None:
-        key = self._key_func(task)
-        heappush(self._heap, (key, task))
-        if task not in self._queue:
-            self._queue.append(task)
+    def set_current_time(self, current_time: float) -> None:
+        self._current_time = float(current_time)
+        self._rebuild_heap()
 
 
 class HighestValuePolicy(HeapPolicy):

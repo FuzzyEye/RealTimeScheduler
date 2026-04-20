@@ -1,24 +1,23 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union, Callable
+from typing import Any, Optional
 
 
 @dataclass
 class ConfigSimulation:
-    start: float = 0.0
-    end: float = 10.0
+    start: int = 0
+    end: int = 10
     strategy: str = "edf"
-    num_processors: int = 1
     params: dict = field(default_factory=dict)
 
 
 @dataclass
 class ConfigTask:
     name: str
-    execution_time: float
-    period: Optional[float] = None
-    deadline: Optional[float] = None
+    execution_time: int
+    period: Optional[int] = None
+    deadline: Optional[int] = None
     priority: int = 0
-    arrival_time: float = 0.0
+    arrival_time: int = 0
     value: Any = None
 
 
@@ -43,3 +42,4 @@ class Config:
     tasks: list[ConfigTask] = field(default_factory=list)
     simulation: ConfigSimulation = field(default_factory=ConfigSimulation)
     strategies: list[ConfigStrategy] = field(default_factory=list)
+

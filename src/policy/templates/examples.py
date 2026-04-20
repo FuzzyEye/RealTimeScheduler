@@ -6,7 +6,7 @@ for creating their own scheduling policies.
 Example 1: Simple Custom Policy
 -------------------------------
     from src.policy.templates.base import SchedulingPolicy
-    from src.task_params import get_task_value
+    from src.core.task_params import get_task_value
 
     class ValueBasedPolicy(SchedulingPolicy):
         name = "value_based"
@@ -21,7 +21,7 @@ Example 1: Simple Custom Policy
 Example 2: Policy with Configuration
 ----------------------------------
     from src.policy.templates.base import SchedulingPolicy
-    from src.task_params import get_task_laxity, get_task_value
+    from src.core.task_params import get_task_laxity, get_task_value
 
     class UtilityAwarePolicy(SchedulingPolicy):
         name = "utility_aware"
@@ -47,7 +47,7 @@ Example 2: Policy with Configuration
 Example 3: Hybrid Multi-Factor Policy
 -------------------------------------
     from src.policy.templates.base import SchedulingPolicy
-    from src.task_params import get_task_laxity, get_task_value
+    from src.core.task_params import get_task_laxity, get_task_value
 
     class HybridPolicy(SchedulingPolicy):
         name = "hybrid"
@@ -107,7 +107,7 @@ Example 4: Using Task Interface Properties (T, C, D, Val)
 Example 5: Dynamic Value Computation
 -----------------------------------
     from src.policy.templates.base import SchedulingPolicy
-    from src.task_params import compute_task_value
+    from src.core.task_params import compute_task_value
 
     class DynamicValuePolicy(SchedulingPolicy):
         name = "dynamic_value"
@@ -124,7 +124,7 @@ Example 5: Dynamic Value Computation
 
 from typing import Optional, Any, List, Dict
 from src.policy.templates.base import SchedulingPolicy
-from src.task_params import (
+from src.core.task_params import (
     get_task_value,
     get_task_laxity,
     get_task_computation,

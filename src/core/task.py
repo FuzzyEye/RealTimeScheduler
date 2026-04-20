@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional, Callable
+from typing import Any, Optional
 
 
 @dataclass
@@ -51,14 +51,14 @@ class Task:
         elif self.period is not None:
             self.absolute_deadline = self.arrival_time + self.period
         else:
-            self.absolute_deadline = float('inf')
+            self.absolute_deadline = float("inf")
 
     def laxity(self, current_time: float) -> float:
         if self.remaining_time <= 0:
-            return float('inf')
+            return float("inf")
         return self.absolute_deadline - current_time - self.remaining_time
 
-    def copy(self) -> 'Task':
+    def copy(self) -> "Task":
         t = Task(
             name=self.name,
             execution_time=self.execution_time,
@@ -78,11 +78,9 @@ class Task:
     def advance(self, dt: float) -> None:
         self.remaining_time -= dt
 
-    def reset_for_next_period(self) -> 'Task':
+    def reset_for_next_period(self) -> "Task":
         next_arrival = self.absolute_arrival + self._period
-        new_deadline = next_arrival + (
-            self.deadline if self.deadline is not None else (self._period or 0)
-        )
+        new_deadline = next_arrival + (self.deadline if self.deadline is not None else (self._period or 0))
         new_task = Task(
             name=self.name,
             execution_time=self.execution_time,
@@ -117,3 +115,4 @@ class Task:
         if self.name != other.name:
             return self.name < other.name
         return self.instance_id < other.instance_id
+

@@ -1,7 +1,8 @@
-from typing import Callable, Optional, Dict, Any
+from typing import Callable, Dict
 from dataclasses import dataclass
-from src.task import Task
-from src.task_params import (
+
+from src.core.task import Task
+from src.core.task_params import (
     get_task_deadline,
     get_task_laxity,
     get_task_absolute_arrival,
@@ -47,19 +48,19 @@ def highest_priority_selector(tasks: list[Task], current_time: float) -> Task | 
 def shortest_period_selector(tasks: list[Task], current_time: float) -> Task | None:
     if not tasks:
         return None
-    return min(tasks, key=lambda t: get_task_period(t) if get_task_period(t) is not None else float('inf'))
+    return min(tasks, key=lambda t: get_task_period(t) if get_task_period(t) is not None else float("inf"))
 
 
 def shortest_deadline_selector(tasks: list[Task], current_time: float) -> Task | None:
     if not tasks:
         return None
-    return min(tasks, key=lambda t: get_task_deadline(t) if get_task_deadline(t) is not None else float('inf'))
+    return min(tasks, key=lambda t: get_task_deadline(t) if get_task_deadline(t) is not None else float("inf"))
 
 
 def highest_value_selector(tasks: list[Task], current_time: float) -> Task | None:
     if not tasks:
         return None
-    return max(tasks, key=lambda t: get_task_value(t, current_time) if get_task_value(t, current_time) is not None else float('-inf'))
+    return max(tasks, key=lambda t: get_task_value(t, current_time) if get_task_value(t, current_time) is not None else float("-inf"))
 
 
 def value_based_selector(tasks: list[Task], current_time: float) -> Task | None:
@@ -84,3 +85,4 @@ def get_selector(name: str) -> SelectorFn:
     if name not in SELECTORS:
         raise ValueError(f"Unknown selector '{name}'. Available: {list(SELECTORS.keys())}")
     return SELECTORS[name].fn
+

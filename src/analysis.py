@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict
 from dataclasses import dataclass, field
-from src.task import Task
+from src.core.task import Task
 
 
 @dataclass

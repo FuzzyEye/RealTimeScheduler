@@ -19,7 +19,6 @@ simulation:
   start: 0.0
   end: 24.0
   strategy: edf
-  num_processors: 1
   params: {}
 
 strategies:
