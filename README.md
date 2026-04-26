@@ -182,7 +182,13 @@ src/
 ├── selectors.py         Built-in selector functions
 ├── registry.py          StrategyRegistry (loads from YAML)
 ├── plugins.py           Python plugin loader
-├── simulator.py         Event-driven simulation engine
+├── sim/                 Event-driven simulation package
+│   ├── engine.py        Single-core scheduling engine
+│   ├── factory.py       Unified engine factory and run API
+│   ├── interfaces.py    Stable engine interface/config contracts
+│   ├── scheduler.py     Events and scheduling result models
+│   ├── task_builder.py  Task instance construction
+│   └── policy_factory.py Policy instantiation
 ├── formatters.py        ASCII Gantt + metrics display
 └── policy/
     ├── __init__.py      Main exports, policy_registry

@@ -6,16 +6,11 @@ from src.core.config import ConfigTask
 from src.core.task import Task
 
 
-def build_tasks(config_tasks: List[ConfigTask], start: int, end: int) -> List[Task]:
+def build_tasks(config_tasks: List[ConfigTask], start: float, end: float) -> List[Task]:
     result: List[Task] = []
     for ct in config_tasks:
         if ct.period is not None and ct.period > 0:
-            num_instances = ((end - start) // ct.period) + 1
-            num_instances = max(0, num_instances)
-            for i in range(num_instances):
-                arr = ct.arrival_time + i * ct.period
-                if arr >= end:
-                    break
+            if ct.arrival_time < end:
                 result.append(
                     Task(
                         name=ct.name,
@@ -23,8 +18,8 @@ def build_tasks(config_tasks: List[ConfigTask], start: int, end: int) -> List[Ta
                         period=ct.period,
                         deadline=ct.deadline,
                         priority=ct.priority,
-                        arrival_time=arr,
-                        instance_id=i,
+                        arrival_time=ct.arrival_time,
+                        instance_id=0,
                         value=ct.value,
                     )
                 )

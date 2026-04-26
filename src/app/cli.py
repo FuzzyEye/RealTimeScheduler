@@ -20,8 +20,8 @@ Examples:
     )
     parser.add_argument("--config", "-c", default="config/tasks.yaml", help="Path to YAML config file")
     parser.add_argument("--strategy", "-s", help="Scheduling strategy to use (overrides config)")
-    parser.add_argument("--start", type=int, help="Simulation start time (integer, overrides config)")
-    parser.add_argument("--end", type=int, help="Simulation end time (integer, overrides config)")
+    parser.add_argument("--start", type=float, help="Simulation start time (overrides config)")
+    parser.add_argument("--end", type=float, help="Simulation end time (overrides config)")
     parser.add_argument("--list-strategies", action="store_true", help="List available strategies and exit")
     parser.add_argument("--width", type=int, default=70, help="Gantt chart width (default: 70)")
     parser.add_argument(

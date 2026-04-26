@@ -13,6 +13,8 @@ from src.sim.scheduler import EventType, RunningTask, ScheduleEvent, SchedulingR
 class SingleCoreEngine(SchedulerEngine):
     """Single-core, event-driven simulation engine."""
 
+    EPSILON = 1e-9
+
     def __init__(
         self,
         tasks,
@@ -20,12 +22,20 @@ class SingleCoreEngine(SchedulerEngine):
         end: float,
         strategy_name: str,
         strategy_params: Optional[dict] = None,
+        num_processors: int = 1,
+        preemptive: bool = True,
     ):
+        if num_processors != 1:
+            raise NotImplementedError(
+                "SingleCoreEngine only supports num_processors=1."
+            )
         self.tasks = list(tasks)
         self.start = start
         self.end = end
         self.strategy_name = strategy_name
         self.strategy_params = strategy_params or {}
+        self.num_processors = num_processors
+        self.preemptive = preemptive
 
         self.result = SchedulingResult()
         self.result.total_time = end - start
@@ -41,7 +51,11 @@ class SingleCoreEngine(SchedulerEngine):
         self.context_switch_count: int = 0
         self.arrived_keys: set = set()
         self.missed_keys: set = set()
-        self._all_arrivals: list[Task] = list(tasks)
+        self._pending_arrivals: list[Task] = sorted(
+            list(tasks),
+            key=lambda t: (t.absolute_arrival, t.name, t.instance_id),
+            reverse=True,
+        )
 
         strategy_def = registry.get(strategy_name)
         if strategy_def is None:
@@ -51,6 +65,17 @@ class SingleCoreEngine(SchedulerEngine):
             raise ValueError(msg)
         self.stype = strategy_def["type"]
         self.policy: SchedulingPolicy = create_policy(strategy_name, self.strategy_params)
+
+    def _enqueue_future_arrival(self, task: Task) -> None:
+        insert_at = 0
+        task_key = (task.absolute_arrival, task.name, task.instance_id)
+        while insert_at < len(self._pending_arrivals):
+            prev = self._pending_arrivals[insert_at]
+            prev_key = (prev.absolute_arrival, prev.name, prev.instance_id)
+            if prev_key <= task_key:
+                break
+            insert_at += 1
+        self._pending_arrivals.insert(insert_at, task)
 
     @staticmethod
     def _task_key(task: Task) -> tuple:
@@ -85,13 +110,19 @@ class SingleCoreEngine(SchedulerEngine):
                 )
             )
         self.policy.add_task(task_copy)
+        if task.is_periodic():
+            next_task = task.reset_for_next_period()
+            if next_task.absolute_arrival < self.end - self.EPSILON:
+                self._enqueue_future_arrival(next_task)
 
     def _arrive_tasks(self, until: float) -> None:
         self._sync_policy_time(until)
-        for task in self._all_arrivals:
+        while self._pending_arrivals and self._pending_arrivals[-1].absolute_arrival <= until + self.EPSILON:
+            task = self._pending_arrivals.pop()
             key = self._task_key(task)
-            if task.absolute_arrival <= until and key not in self.arrived_keys:
-                self._record_arrival(task)
+            if key in self.arrived_keys:
+                continue
+            self._record_arrival(task)
 
     def _schedule_if_idle(self) -> None:
         if self.running_task is not None or not self.policy.has_pending():
@@ -132,7 +163,7 @@ class SingleCoreEngine(SchedulerEngine):
             key = self._task_key(task)
             if key in self.task_completion_times or key in self.missed_keys:
                 continue
-            if task.absolute_deadline < self.current_time:
+            if task.absolute_deadline < self.current_time - self.EPSILON:
                 self.missed_keys.add(key)
                 self.result.missed_deadlines.append(f"{task.name}#{task.instance_id}")
                 self.result.events.append(
@@ -151,10 +182,7 @@ class SingleCoreEngine(SchedulerEngine):
             next_time = min(next_time, self.current_time + remaining)
             if self.running_task.quantum_expire_time is not None:
                 next_time = min(next_time, self.running_task.quantum_expire_time)
-        next_arrival = min(
-            (t.absolute_arrival for t in self._all_arrivals if self._task_key(t) not in self.arrived_keys),
-            default=self.end,
-        )
+        next_arrival = self._pending_arrivals[-1].absolute_arrival if self._pending_arrivals else self.end
         return min(next_time, next_arrival)
 
     def _advance(self, next_time: float) -> None:
@@ -165,10 +193,25 @@ class SingleCoreEngine(SchedulerEngine):
         self.current_time = next_time
 
     def _process_completion(self) -> None:
-        if self.running_task is None or self.running_task.task.remaining_time > 1e-9:
+        if self.running_task is None or self.running_task.task.remaining_time > self.EPSILON:
             return
         task = self.running_task.task
         self.running_task = None
+        key = self._task_key(task)
+        if (
+            task.absolute_deadline < self.current_time - self.EPSILON
+            and key not in self.missed_keys
+        ):
+            self.missed_keys.add(key)
+            self.result.missed_deadlines.append(f"{task.name}#{task.instance_id}")
+            self.result.events.append(
+                ScheduleEvent(
+                    time=task.absolute_deadline,
+                    event_type=EventType.DEADLINE_MISS,
+                    task_name=task.name,
+                    details=f"Missed deadline at {int(task.absolute_deadline)} (instance={task.instance_id})",
+                )
+            )
         self.result.events.append(
             ScheduleEvent(
                 time=self.current_time,
@@ -178,14 +221,13 @@ class SingleCoreEngine(SchedulerEngine):
             )
         )
         self.result.completed_tasks.append(task.name)
-        key = self._task_key(task)
         self.task_completion_times[key] = self.current_time
         self.task_response_times[key] = self.current_time - task.absolute_arrival
 
     def _process_quantum_expiry(self) -> None:
         if self.running_task is None or self.running_task.quantum_expire_time is None:
             return
-        if self.current_time < self.running_task.quantum_expire_time - 1e-9:
+        if self.current_time < self.running_task.quantum_expire_time - self.EPSILON:
             return
         task = self.running_task.task
         self.running_task = None
@@ -200,7 +242,9 @@ class SingleCoreEngine(SchedulerEngine):
         self.policy.add_task(task)
 
     def _check_preemption(self) -> None:
-        if self.running_task is None or self.running_task.task.remaining_time <= 0:
+        if not self.preemptive:
+            return
+        if self.running_task is None or self.running_task.task.remaining_time <= self.EPSILON:
             return
         self._sync_policy_time(self.current_time)
         context = SchedulingContext(
@@ -235,10 +279,7 @@ class SingleCoreEngine(SchedulerEngine):
 
         while self.current_time < self.end:
             if not self._has_pending_work():
-                next_arrival = min(
-                    (t.absolute_arrival for t in self._all_arrivals if self._task_key(t) not in self.arrived_keys),
-                    default=self.end,
-                )
+                next_arrival = self._pending_arrivals[-1].absolute_arrival if self._pending_arrivals else self.end
                 idle_to = min(next_arrival, self.end)
                 if idle_to > self.current_time:
                     self.result.cpu_idle_time += idle_to - self.current_time
@@ -265,8 +306,4 @@ class SingleCoreEngine(SchedulerEngine):
         self.result.preemption_count = self.preemption_count
         self.result.context_switch_count = self.context_switch_count
         return self.result
-
-
-# Backward-compatible alias for existing imports.
-SimulationEngine = SingleCoreEngine
 

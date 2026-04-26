@@ -4,20 +4,22 @@ from typing import Any, Optional
 
 @dataclass
 class ConfigSimulation:
-    start: int = 0
-    end: int = 10
+    start: float = 0.0
+    end: float = 10.0
     strategy: str = "edf"
+    num_processors: int = 1
+    preemptive: bool = True
     params: dict = field(default_factory=dict)
 
 
 @dataclass
 class ConfigTask:
     name: str
-    execution_time: int
-    period: Optional[int] = None
-    deadline: Optional[int] = None
+    execution_time: float
+    period: Optional[float] = None
+    deadline: Optional[float] = None
     priority: int = 0
-    arrival_time: int = 0
+    arrival_time: float = 0.0
     value: Any = None
 
 

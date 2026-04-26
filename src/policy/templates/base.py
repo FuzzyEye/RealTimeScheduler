@@ -47,6 +47,9 @@ class SchedulingPolicy(ABC):
     def task_count(self) -> int:
         return len(self._queue)
 
+    def get_ready_queue(self) -> List[Any]:
+        return list(self._queue)
+
     def _task_key(self, task: Any) -> str:
         return f"{task.name}:{getattr(task, 'instance_id', 0)}"
 
@@ -84,15 +87,12 @@ class SchedulingPolicy(ABC):
         if context.running_task is None or not self.has_pending():
             return False
 
-        incoming = self.select()
-        if incoming is None:
-            return False
+        selected = self.peek_with(context.running_task)
+        return selected is not None and selected is not context.running_task
 
-        running = context.running_task
-        selected_incoming = self._would_select(incoming)
-        selected_running = self._would_select(running)
-
-        return selected_incoming is not None and selected_incoming is not selected_running
+    def peek_with(self, task: Any) -> Optional[Any]:
+        """Return selected task if `task` were also considered ready."""
+        return self._would_select(task)
 
     def _would_select(self, task: Any) -> Optional[Any]:
         temp_queue = self._queue.copy()
@@ -138,6 +138,14 @@ class HeapPolicy(SchedulingPolicy):
 
     def get_tasks(self) -> List[Any]:
         return [t for _, t in self._heap]
+
+    def peek_with(self, task: Any) -> Optional[Any]:
+        if task is None:
+            return self.select()
+        current = self.select()
+        if current is None:
+            return task
+        return current if self._key_func(current) <= self._key_func(task) else task
 
 
 class QueuePolicy(SchedulingPolicy):

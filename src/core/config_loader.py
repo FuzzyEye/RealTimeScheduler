@@ -12,7 +12,7 @@ def _normalize_numeric_params(value: Any) -> Any:
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
-        return int(value)
+        return float(value)
     if isinstance(value, list):
         return [_normalize_numeric_params(v) for v in value]
     if isinstance(value, dict):
@@ -27,11 +27,11 @@ def load_config(path: str | Path) -> Config:
     tasks = [
         ConfigTask(
             name=t["name"],
-            execution_time=int(t["execution_time"]),
-            period=int(t["period"]) if t.get("period") is not None else None,
-            deadline=int(t["deadline"]) if t.get("deadline") is not None else None,
+            execution_time=float(t["execution_time"]),
+            period=float(t["period"]) if t.get("period") is not None else None,
+            deadline=float(t["deadline"]) if t.get("deadline") is not None else None,
             priority=t.get("priority", 0),
-            arrival_time=int(t.get("arrival_time", 0)),
+            arrival_time=float(t.get("arrival_time", 0)),
             value=t.get("value"),
         )
         for t in raw.get("tasks", [])
@@ -39,9 +39,11 @@ def load_config(path: str | Path) -> Config:
 
     sim = raw.get("simulation", {})
     simulation = ConfigSimulation(
-        start=int(sim.get("start", 0)),
-        end=int(sim.get("end", 10)),
+        start=float(sim.get("start", 0)),
+        end=float(sim.get("end", 10)),
         strategy=sim.get("strategy", "edf"),
+        num_processors=int(sim.get("num_processors", 1)),
+        preemptive=bool(sim.get("preemptive", True)),
         params=_normalize_numeric_params(sim.get("params", {})),
     )
 

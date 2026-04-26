@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 
+from src.app.cli import build_parser
 from src.core.config import Config
 from src.core.config_loader import load_config, register_strategies
 from src.core.registry import registry
@@ -12,7 +13,7 @@ from src.app.output import to_html, to_png, to_svg, to_tikz
 from src.formatters import format_strategy_summary
 from src.render.console import print_banner, print_gantt, print_header, print_metrics
 from src.reports import ReportExporter
-from src.sim import SimulationEngine
+from src.sim import EngineConfig, run_simulation
 from src.sim.task_builder import build_tasks
 
 RESET = "\033[0m"
@@ -22,16 +23,17 @@ GREEN = "\033[92m"
 RED = "\033[91m"
 
 
-def run_strategy(config: Config, strategy_name: str, start: int, end: int):
+def run_strategy(config: Config, strategy_name: str, start: float, end: float):
     tasks = build_tasks(config.tasks, start, end)
-    sim = SimulationEngine(
-        tasks=tasks,
+    sim_config = EngineConfig(
         start=start,
         end=end,
         strategy_name=strategy_name,
+        num_processors=config.simulation.num_processors,
+        preemptive=config.simulation.preemptive,
         strategy_params=config.simulation.params,
     )
-    return sim.run()
+    return run_simulation(tasks, sim_config)
 
 
 def list_strategies(config: Config):
@@ -61,10 +63,14 @@ def run_app(args: argparse.Namespace) -> int:
         return 0
 
     strategy = args.strategy or config.simulation.strategy
-    start = int(args.start) if args.start is not None else int(config.simulation.start)
-    end = int(args.end) if args.end is not None else int(config.simulation.end)
+    start = float(args.start) if args.start is not None else float(config.simulation.start)
+    end = float(args.end) if args.end is not None else float(config.simulation.end)
+    num_processors = int(config.simulation.num_processors)
     if end <= start:
         print(f"Error: end ({end}) must be greater than start ({start})", file=sys.stderr)
+        return 1
+    if num_processors < 1:
+        print(f"Error: num_processors must be >= 1, got {num_processors}", file=sys.stderr)
         return 1
 
     print_banner()
@@ -168,4 +174,14 @@ def run_app(args: argparse.Namespace) -> int:
 
     print()
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return run_app(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
