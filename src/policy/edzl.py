@@ -1,6 +1,6 @@
 from typing import Optional, Any, List
 from src.policy.templates.base import SchedulingPolicy
-from src.core.task_params import get_task_laxity, get_task_absolute_deadline
+from src.task_params import get_task_laxity, get_task_absolute_deadline
 
 
 class EDZLPolicy(SchedulingPolicy):

@@ -1,5 +1,4 @@
-from src.sim.scheduler import SchedulingResult, ScheduleEvent, EventType
-from src.sim.timeline import build_execution_segments
+from src.scheduler import SchedulingResult, ScheduleEvent, EventType
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -26,10 +25,30 @@ def _get_color(name: str) -> str:
 
 
 def _build_segments(result: SchedulingResult) -> list:
-    return build_execution_segments(result)
+    segments = []
+    running = None
+    seg_start = 0.0
+    sorted_events = sorted(result.events, key=lambda e: e.time)
+
+    for e in sorted_events:
+        if e.event_type == EventType.SCHEDULE:
+            if running is not None and seg_start < e.time:
+                segments.append((seg_start, e.time, running))
+            running = e.task_name
+            seg_start = e.time
+        elif e.event_type in (EventType.COMPLETE, EventType.PREEMPT, EventType.QUANTUM_EXPIRE):
+            if running is not None:
+                segments.append((seg_start, e.time, running))
+                running = None
+                seg_start = e.time
+
+    if running is not None:
+        segments.append((seg_start, result.total_time, running))
+
+    return segments
 
 
-def format_gantt(result: SchedulingResult, max_width: int = 80) -> str:
+def format_gantt(result: SchedulingResult, max_width: int = 80, num_processors: int = 1) -> str:
     if not result.events:
         return "  (no scheduling events)"
 
@@ -37,7 +56,7 @@ def format_gantt(result: SchedulingResult, max_width: int = 80) -> str:
     if not segments:
         return "  (no execution segments)"
 
-    total = int(result.total_time)
+    total = result.total_time
     if total <= 0:
         total = 1.0
 
@@ -47,59 +66,51 @@ def format_gantt(result: SchedulingResult, max_width: int = 80) -> str:
 
     scale = avail_width / total
 
+    def time_to_col(t: float) -> int:
+        return int(t * scale)
+
     seen_names = []
     for _, _, name in segments:
         if name not in seen_names:
             seen_names.append(name)
 
-    def draw_row() -> list:
-        spans = []
-        cur = 0
-        for start_t, end_t, task_name in segments:
-            sc = max(0, min(int(start_t * scale), avail_width))
-            ec = max(sc, min(int(end_t * scale), avail_width))
-            if sc > cur:
-                spans.append(("space", cur, sc))
-            spans.append((_get_color(task_name), sc, ec, task_name))
-            cur = ec
-        if cur < avail_width:
-            spans.append(("space", cur, avail_width))
-        return spans
-
-    parts = []
-    for span in draw_row():
-        if span[0] == "space":
-            parts.append(" " * (span[2] - span[1]))
-            continue
-        color, sc, ec, task_name = span
-        width = ec - sc
-        if width <= 0:
-            continue
-        bar = ["─"] * width
-        label = task_name[:width]
-        if label:
-            start = max(0, (width - len(label)) // 2)
-            for i, ch in enumerate(label):
-                if start + i < width:
-                    bar[start + i] = ch
-        parts.append(f"{color}{''.join(bar)}{RESET}")
+    output_lines = []
 
     ruler = [" "] * avail_width
-    num_ticks = min(avail_width // 10, 20) or 1
+    num_ticks = min(avail_width // 10, 20)
+    if num_ticks == 0:
+        num_ticks = 1
     for i in range(num_ticks + 1):
         col = int(i * avail_width / num_ticks)
-        val = int(total * i / num_ticks)
-        label = f"{val}"
+        val = total * i / num_ticks
+        label = f"{val:.1f}"
         for j, ch in enumerate(label):
             if col + j < avail_width:
                 ruler[col + j] = ch
 
-    output_lines = [
-        f"  {DIM}{'─' * avail_width}{RESET}",
-        "  " + "".join(parts),
-        "  " + "".join(ruler),
-        "  Legend: " + "  ".join(f"{_get_color(n)}{n}{RESET}" for n in seen_names),
-    ]
+    output_lines.append(f"  {DIM}{'─' * avail_width}{RESET}")
+
+    bar = [" "] * avail_width
+    for start_t, end_t, task_name in segments:
+        sc = max(0, min(time_to_col(start_t), avail_width - 1))
+        ec = max(sc, min(time_to_col(end_t), avail_width))
+        color = _get_color(task_name)
+        label = task_name[:max(1, ec - sc)]
+        for i in range(sc, ec):
+            bar[i] = f"{color}─{RESET}"
+        if ec - sc >= len(label):
+            pos = sc + (ec - sc - len(label)) // 2
+            bar[pos:pos + len(label)] = list(f"{color}{label}{RESET}")
+
+    output_lines.append("  " + "".join(bar))
+
+    output_lines.append("  " + "".join(ruler))
+
+    legend = "  Legend: " + "  ".join(
+        f"{_get_color(n)}{n}{RESET}" for n in seen_names
+    )
+    output_lines.append(legend)
+
     return "\n".join(output_lines)
 
 

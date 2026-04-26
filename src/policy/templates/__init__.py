@@ -12,7 +12,7 @@ To implement a custom policy:
 
 Example:
     from src.policy.templates.base import SchedulingPolicy
-    from src.core.task_params import get_task_value
+    from src.task_params import get_task_value
 
     class MyPolicy(SchedulingPolicy):
         name = "my_policy"

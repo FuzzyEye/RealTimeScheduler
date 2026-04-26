@@ -1,6 +1,6 @@
 from typing import Optional, Any
 from src.policy.templates.base import HeapPolicy, SchedulingContext
-from src.core.task_params import get_task_laxity
+from src.task_params import get_task_laxity
 
 
 class LLFPolicy(HeapPolicy):
@@ -10,12 +10,15 @@ class LLFPolicy(HeapPolicy):
     def __init__(self):
         super().__init__()
         self._current_time = 0.0
-        # Make heap keys time-dependent (recomputed via _rebuild_heap()).
-        self._key_func = lambda t: get_task_laxity(t, self._current_time)
 
-    def set_current_time(self, current_time: float) -> None:
-        self._current_time = float(current_time)
-        self._rebuild_heap()
+    def _key_func(self, task: Any) -> float:
+        return get_task_laxity(task, self._current_time)
+
+    def _enqueue(self, task: Any) -> None:
+        key = get_task_laxity(task, self._current_time)
+        heappush(self._heap, (key, task))
+        if task not in self._queue:
+            self._queue.append(task)
 
     def select(self) -> Optional[Any]:
         if not self._heap:
@@ -32,11 +35,16 @@ class LLFThresholdPolicy(HeapPolicy):
         super().__init__()
         self.threshold = threshold
         self._current_time = 0.0
-        self._key_func = lambda t: get_task_laxity(t, self._current_time)
+        self._fallback_key = lambda t: t.absolute_deadline
 
-    def set_current_time(self, current_time: float) -> None:
-        self._current_time = float(current_time)
-        self._rebuild_heap()
+    def _key_func(self, task: Any) -> float:
+        return get_task_laxity(task, self._current_time)
+
+    def _enqueue(self, task: Any) -> None:
+        key = get_task_laxity(task, self._current_time)
+        heappush(self._heap, (key, task))
+        if task not in self._queue:
+            self._queue.append(task)
 
     def select(self) -> Optional[Any]:
         if not self._heap:

@@ -1,185 +1,201 @@
 # RealTimeScheduler
 
-RealTimeScheduler is a Python simulator for single-core real-time scheduling research and teaching.  
-It runs event-driven scheduling on **discrete integer time ticks**, supports multiple strategies, and exports timelines for console, figures, and papers (including TikZ).
+A Python-based real-time task scheduler simulator supporting multiple scheduling policies (EDF, LLF, RMS, DMS, FCFS, RR) with a polymorphic interface for custom policies.
 
-## Current Capabilities
+## Features
 
-- Multiple built-in strategies in one framework: `edf`, `llf`, `llf_threshold`, `rms`, `dms`, `fcfs`, `rr`, `hybrid_edf_llf`
-- Discrete-time simulation (`start`, `end`, arrivals, period, deadline, execution, quantum are treated as integers)
-- Event trace with arrivals, dispatch, preemption, completion, deadline and deadline miss
-- Metrics: CPU utilization, throughput, deadline miss count, response/waiting time stats, lateness, context switches
-- Timeline outputs:
-  - terminal ASCII Gantt
-  - PNG
-  - SVG
-  - HTML
-  - TikZ (academic style, deadline arrows, missed-deadline cross marker)
-- Report export: JSON / CSV / Markdown
-- Strategy comparison mode (`--strategy all`)
+- **12 built-in scheduling policies** using task parameter interfaces (T, C, D, Val)
+- **Polymorphic task data** via Protocol interfaces - custom policies access task data through standard accessors
+- **Flexible Val parameter** - can be static values, callable functions, or computed at runtime
+- **Policy-based architecture** - OOP design with `SchedulingPolicy` base class
+- **Event-driven simulation** from `start` to `end` timestamp
+- **ASCII Gantt chart** with ANSI colors in terminal
+- **Metrics**: CPU utilization, throughput, deadline miss count, avg response time
 
 ## Quick Start
 
 ```bash
-# Run with default config
-python main.py --config config/tasks.yaml
+# Run with modular config (default: ./config)
+python main.py
 
-# Run a specific strategy
-python main.py --config config/tasks.yaml --strategy edf --start 0 --end 24
-
-# Compare all configured strategies
-python main.py --config config/tasks.yaml --strategy all
-
-# List strategies from config
-python main.py --config config/tasks.yaml --list-strategies
-
-# Export timeline figures
-python main.py -c config/tasks.yaml -o tikz --output-file schedule.tex
-python main.py -c config/tasks.yaml -o png --output-file schedule.png
-python main.py -c config/tasks.yaml --export-svg output/schedule.svg
-python main.py -c config/tasks.yaml --export-html output/schedule.html
-
-# Export metrics
-python main.py -c config/tasks.yaml --export-json output/result.json
-python main.py -c config/tasks.yaml --export-csv output/result.csv
+# Optional: choose another config directory
+RTS_CONFIG_DIR=./config python main.py
 ```
 
-## CLI Arguments
+## Configuration
 
-- `--config, -c`: YAML config path (default `config/tasks.yaml`)
-- `--strategy, -s`: strategy name, or `all`
-- `--start`: simulation start tick (integer)
-- `--end`: simulation end tick (integer)
-- `--list-strategies`: print strategy list and exit
-- `--output, -o`: `console | png | tikz | all`
-- `--output-file`: output filename used by `png/tikz`
-- `--width`: console gantt width
-- `--verbose`, `--debug`: extra logs
-- `--export-json`, `--export-csv`, `--export-svg`, `--export-html`: extra export files
+The simulator is fully config-driven. Settings are split by module:
 
-## Config File (`config/tasks.yaml`)
+- `config/tasks.yaml`: task set only
+- `config/system.yaml`: system/simulation/execution/output/export settings
+- `config/policy.yaml`: policy strategy definitions
 
-The config has three top-level sections: `tasks`, `simulation`, `strategies`.
-
-### 1) `tasks` section
-
-Each item describes one task template.
+### `config/tasks.yaml`
 
 ```yaml
 tasks:
   - name: T1
-    period: 4
-    execution_time: 1
-    deadline: 4
+    period: 4.0
+    execution_time: 1.0
+    deadline: 4.0
     priority: 1
-    arrival_time: 0
-    value: 10
+    value: 10                    # Optional: task value for value-based policies
+  - name: A1
+    arrival_time: 1.0            # aperiodic
+    execution_time: 1.5
+    deadline: 5.0
+    value: 15
 ```
 
-Supported fields:
+### `config/system.yaml`
 
-- `name` (string, required): task identifier
-- `execution_time` (int, required): required CPU time per instance
-- `period` (int, optional): periodic task period; if omitted, task is treated as aperiodic
-- `deadline` (int, optional): relative deadline; if omitted and `period` exists, uses period as deadline
-- `priority` (int, optional, default `0`): used by fixed-priority strategies
-- `arrival_time` (int, optional, default `0`): first release tick
-- `value` (optional): reserved for value-aware policies/templates
-
-### 2) `simulation` section
-
-```yaml
-simulation:
-  start: 0
-  end: 24
-  strategy: edf
-  params: {}
-```
-
-Supported fields:
-
-- `start` (int): simulation start tick
-- `end` (int): simulation end tick (must be `> start`)
-- `strategy` (string): default strategy name when CLI `--strategy` is not specified
-- `params` (dict): runtime parameters passed to selected strategy/policy (numeric values are normalized to int)
-
-### 3) `strategies` section
-
-Each strategy entry defines a runnable strategy in registry.
-
-```yaml
-strategies:
-  - name: edf
-    type: dynamic
-    selector: earliest_deadline
-    description: "Earliest Deadline First"
+system:
+  simulation:
+    start: 0.0
+    end: 24.0
+    strategy: edf
+    num_processors: 1
+    preemptive: true
     params: {}
+
+  execution:
+    strategy: edf                 # or "all"
+    list_strategies: false
+
+  output:
+    mode: console                 # console | png | tikz | all
+    width: 70
+    output_file: null
+    verbose: false
+    debug: false
+
+  export:
+    json: null
+    csv: null
+    svg: null                     # only when execution.strategy != all
+    html: null                    # only when execution.strategy != all
 ```
 
-Supported fields:
+## Built-in Policies
 
-- `name` (string, required): strategy id used by `--strategy`
-- `type` (string, required): strategy class type (`dynamic`, `fixed_priority`, `queue`, `round_robin`, `conditional`, ...)
-- `description` (string, optional): shown in list output
-- `selector` (string, optional): selector function name for selection-based types
-- `fallback` (string, optional): fallback strategy name
-- `priority_key` (string, optional): key for fixed-priority sort (e.g. `period`, `deadline`)
-- `condition` (dict, optional): condition definition for conditional strategy
-- `true_branch` / `false_branch` (string, optional): branch strategy names
-- `params` (dict, optional): strategy-specific parameters (e.g. RR quantum, LLF threshold)
-- `module` / `class_name` (string, optional): for custom strategy loading
+| Policy | Type | Description |
+|--------|------|-------------|
+| `edf` | dynamic | Earliest Deadline First |
+| `llf` | dynamic | Least Laxity First |
+| `llf_threshold` | dynamic | LLF with EDF fallback when laxity > threshold |
+| `rms` | fixed_priority | Rate Monotonic Scheduling |
+| `dms` | fixed_priority | Deadline Monotonic Scheduling |
+| `fcfs` | queue | First Come First Served |
+| `rr` | round_robin | Round Robin (configurable quantum) |
+| `value_based` | value | Select by highest task value (Val) |
+| `highest_value` | value | Select by highest raw value |
+| `utility_aware` | value | Combine value with urgency (laxity) |
+| `hybrid` | value | Weighted combination of priority, deadline, value |
 
-## Example Config (Current Project)
+## Task Parameter Interfaces
 
-```yaml
-tasks:
-  - name: T1
-    period: 4
-    execution_time: 1
-    deadline: 4
-    priority: 1
-  - name: T2
-    period: 6
-    execution_time: 2
-    deadline: 6
-    priority: 2
-  - name: T3
-    period: 8
-    execution_time: 3
-    deadline: 8
-    priority: 3
+Tasks expose parameters through standard interfaces for polymorphic access:
 
-simulation:
-  start: 0
-  end: 24
-  strategy: edf
-  params: {}
+| Interface | Property | Description |
+|-----------|-----------|-------------|
+| `T` | `period` | Task period |
+| `C` | `execution_time` | Computation time |
+| `D` | `deadline` | Relative deadline |
+| `Val` | `value` | Task value (flexible type) |
+
+```python
+from src.task import Task
+
+task = Task(name="T1", execution_time=1.0, period=4.0, deadline=4.0, value=10)
+
+# Direct property access
+print(task.T)        # 4.0 (period)
+print(task.C)        # 1.0 (execution_time)
+print(task.D)        # 4.0 (deadline)
+print(task.Val)      # 10 (value)
+
+# Via accessor functions (for polymorphic tasks)
+from src.task_params import get_task_period, get_task_value, compute_task_value
+
+print(get_task_period(task))           # 4.0
+print(get_task_value(task, 0.0))       # 10
+print(compute_task_value(task, 0.0))    # 10 (handles callable values)
 ```
 
-## TikZ Output Notes (Academic Figure)
+## Custom Policies
 
-Current TikZ exporter includes:
+### Using the Policy Base Class
 
-- per-task horizontal timelines with arrow heads
-- gray pulse blocks for execution intervals
-- sparse tick labels for readability
-- upward arrows for each instance deadline
-- cross marker (`×`) on deadline arrow for missed instances
+Create `src/policy/my_policy.py`:
 
-This style is suitable for direct use in papers with minor typography adjustments.
+```python
+from typing import Optional, Any, List
+from src.policy.templates.base import SchedulingPolicy
+from src.task_params import get_task_value, get_task_laxity
 
-## Project Structure
+class MyValuePolicy(SchedulingPolicy):
+    name = "my_value"
+    description = "Select task with highest value-to-laxity ratio"
 
-```text
+    def select(self, ready_queue: List[Any], current_time: float) -> Optional[Any]:
+        if not ready_queue:
+            return None
+
+        def value_urgency_ratio(task):
+            val = get_task_value(task, current_time) or 0
+            laxity = get_task_laxity(task, current_time)
+            if laxity <= 0:
+                return float('inf')
+            return val / laxity
+
+        return max(ready_queue, key=value_urgency_ratio)
+```
+
+Register in `src/policy/__init__.py`:
+
+```python
+from src.policy.my_policy import MyValuePolicy, my_value_factory
+
+policy_registry.register(MyValuePolicy, my_value_factory)
+```
+
+### Using Template Classes
+
+```python
+from src.policy.templates import UtilityAwareTemplate
+
+class MyUtilityPolicy(UtilityAwareTemplate):
+    name = "my_utility"
+    description = "Custom utility-aware policy"
+
+    def __init__(self, urgency_weight: float = 0.6, value_weight: float = 0.4):
+        super().__init__(urgency_weight, value_weight)
+```
+
+## Architecture
+
+```
 src/
-├── app/                # CLI and app orchestration
-├── core/               # task/config/registry models
-├── sim/                # simulation engine and event models
-├── render/             # console + figure exporters
-├── policy/             # built-in scheduling policies
-├── formatters.py       # console formatting
-├── reports.py          # JSON/CSV/Markdown exporters
-└── plugins.py          # plugin loader
+├── task.py              Task dataclass with T, C, D, Val interfaces
+├── task_params.py       Protocol interfaces and accessor functions
+├── config.py            YAML config models
+├── selectors.py         Built-in selector functions
+├── registry.py          StrategyRegistry (loads from YAML)
+├── plugins.py           Python plugin loader
+├── simulator.py         Event-driven simulation engine
+├── formatters.py        ASCII Gantt + metrics display
+└── policy/
+    ├── __init__.py      Main exports, policy_registry
+    ├── edf.py           EDFPolicy
+    ├── llf.py           LLFPolicy, LLFThresholdPolicy
+    ├── priority.py      RMSPolicy, DMSPolicy, FixedPriorityPolicy
+    ├── fcfs.py          FCFSPolicy
+    ├── rr.py            RoundRobinPolicy
+    ├── value.py         ValueBasedPolicy, UtilityAwarePolicy, HybridPolicy
+    └── templates/
+        ├── __init__.py  Template exports
+        ├── base.py      SchedulingPolicy ABC, PolicyRegistry
+        └── examples.py  Example implementations
 ```
 
 ## License

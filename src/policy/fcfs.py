@@ -1,6 +1,6 @@
 from typing import Optional, Any
 from src.policy.templates.base import HeapPolicy, SchedulingContext
-from src.core.task_params import get_task_absolute_arrival
+from src.task_params import get_task_absolute_arrival
 
 
 class FCFSPolicy(HeapPolicy):

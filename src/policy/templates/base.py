@@ -44,22 +44,6 @@ class SchedulingPolicy(ABC):
     def has_pending(self) -> bool:
         return len(self._queue) > 0
 
-    def get_ready_queue(self) -> List[Any]:
-        """Public, stable view of the ready queue.
-
-        Simulation/formatting code should not reach into internal fields like
-        `_queue` directly; this accessor keeps the policy interface clear.
-        """
-        return list(self._queue)
-
-    def set_current_time(self, current_time: float) -> None:
-        """Allow time-dependent policies (e.g. LLF) to refresh internal keys."""
-        if hasattr(self, "_current_time"):
-            try:
-                setattr(self, "_current_time", float(current_time))
-            except Exception:
-                pass
-
     def task_count(self) -> int:
         return len(self._queue)
 
