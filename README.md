@@ -30,6 +30,8 @@ The simulator is fully config-driven. Settings are split by module:
 - `config/system.yaml`: system/simulation/execution/output/export settings
 - `config/policy.yaml`: policy strategy definitions
 
+The snippets below are representative examples. Refer to files under `config/` for the full set.
+
 ### `config/tasks.yaml`
 
 ```yaml
@@ -39,41 +41,51 @@ tasks:
     execution_time: 1.0
     deadline: 4.0
     priority: 1
-    value: 10                    # Optional: task value for value-based policies
-  - name: A1
-    arrival_time: 1.0            # aperiodic
-    execution_time: 1.5
-    deadline: 5.0
-    value: 15
+  - name: T2
+    period: 6.0
+    execution_time: 2.0
+    deadline: 6.0
+    priority: 2
 ```
 
 ### `config/system.yaml`
 
+```yaml
 system:
   simulation:
     start: 0.0
-    end: 24.0
+    end: 24.0                    # simulation horizon
     strategy: edf
     num_processors: 1
     preemptive: true
     params: {}
 
   execution:
-    strategy: edf                 # or "all"
+    strategy: edf                 # use one strategy; or "all"
     list_strategies: false
 
   output:
     mode: console                 # console | png | tikz | all
     width: 70
-    output_file: null
-    verbose: false
-    debug: false
+    output_file: null             # set path to save output
+```
 
-  export:
-    json: null
-    csv: null
-    svg: null                     # only when execution.strategy != all
-    html: null                    # only when execution.strategy != all
+### `config/policy.yaml`
+
+```yaml
+policy:
+  - name: edf
+    description: "Earliest Deadline First — selects task with earliest absolute deadline"
+    type: dynamic
+    selector: earliest_deadline
+    params: {}
+
+  - name: llf
+    description: "Least Laxity First — selects task with smallest laxity"
+    type: dynamic
+    selector: least_laxity
+    fallback: edf
+    params: {}
 ```
 
 ## Built-in Policies

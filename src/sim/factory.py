@@ -6,11 +6,6 @@ from src.sim.interfaces import EngineConfig, SchedulerEngine
 
 def create_engine(tasks, config: EngineConfig) -> SchedulerEngine:
     """Create a scheduler engine from a stable config object."""
-    if config.num_processors != 1:
-        raise NotImplementedError(
-            "Multiprocessor scheduling is not implemented yet. "
-            f"Requested num_processors={config.num_processors}."
-        )
     return SingleCoreEngine(
         tasks=tasks,
         start=config.start,
